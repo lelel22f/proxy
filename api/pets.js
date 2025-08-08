@@ -71,7 +71,7 @@ export default async function handler(req, res) {
         const cardHtml = allMatch[0];
         
         // Only include if it's a Pet or if the name sounds like a pet
-        const petKeywords = ['Rex', 'Dragon', 'Phoenix', 'Unicorn', 'Griffin', 'Kraken', 'Hydra', 'Wolf', 'Tiger', 'Lion', 'Bear'];
+        const petKeywords = ['T-Rex'];
         const isPet = itemType === 'Pet' || petKeywords.some(keyword => itemName.includes(keyword));
         
         if (isPet) {
