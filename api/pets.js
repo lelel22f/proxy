@@ -23,114 +23,96 @@ export default async function handler(req, res) {
 
     const html = await response.text();
     
-    // Parse the HTML to extract pet data
+    // Parse the HTML to extract pet data using the correct structure
     const pets = [];
     
-    // Look for patterns that match the pet cards
-    // Based on your screenshot, we need to find divs with pet info
-    const petMatches = html.match(/<div[^>]*class="[^"]*item[^"]*"[^>]*>[\s\S]*?<\/div>/gi) || [];
+    // Look for item-card divs that contain pet data
+    const itemCardRegex = /<div class="item-card"[^>]*onclick="openItemDetails\('([^']+)',\s*'Pet'\)"[\s\S]*?<\/div>(?=\s*(?:<div class="item-card"|$))/gi;
     
-    for (const match of petMatches) {
+    let match;
+    while ((match = itemCardRegex.exec(html)) !== null) {
       try {
-        // Extract pet name (looking for text between tags that looks like a name)
-        const nameMatch = match.match(/<[^>]*>([^<]+)<\/[^>]*>/g);
-        let petName = '';
-        let petValue = '';
-        let petDemand = '';
+        const petName = match[1]; // Pet name from onclick attribute
+        const cardHtml = match[0]; // Full card HTML
         
-        // Look for the pet name and values in the HTML structure
-        if (nameMatch) {
-          for (const tag of nameMatch) {
-            const text = tag.replace(/<[^>]*>/g, '').trim();
-            
-            // Pet name is usually the largest text or in a specific class
-            if (text && !text.includes('Value') && !text.includes('Demand') && !text.includes('DIVINE') && text.length > 2 && text.length < 50) {
-              if (!petName || text.length > petName.length) {
-                petName = text;
-              }
-            }
-            
-            // Look for value (usually follows "Value" or contains numbers with decimal)
-            if (text.match(/^\d+\.?\d*$/)) {
-              if (!petValue) petValue = text;
-            }
-            
-            // Look for demand (usually like "8/10")
-            if (text.match(/^\d+\/\d+$/)) {
-              petDemand = text;
-            }
-          }
-        }
+        // Extract value - look for the span with color style containing the value
+        const valueMatch = cardHtml.match(/<span style="color: #5048E5;">([^<]+)<\/span>/);
+        const petValue = valueMatch ? valueMatch[1] : 'N/A';
         
-        if (petName && petValue) {
+        // Extract demand - look for stat-value with color #A2A2A2
+        const demandMatch = cardHtml.match(/<span class="stat-value" style="color: #A2A2A2;">([^<]+)<\/span>/);
+        const petDemand = demandMatch ? demandMatch[1] : 'N/A';
+        
+        // Extract rarity - look for rarity-badge class
+        const rarityMatch = cardHtml.match(/<div class="rarity-badge rarity-([^"]+)">([^<]+)<\/div>/);
+        const petRarity = rarityMatch ? rarityMatch[2] : 'N/A';
+        
+        pets.push({
+          name: petName,
+          value: petValue,
+          demand: petDemand,
+          rarity: petRarity
+        });
+        
+      } catch (error) {
+        console.log('Error parsing pet card:', error);
+      }
+    }
+    
+    // Alternative method: Look for all pet items regardless of category
+    if (pets.length === 0) {
+      // Try to find any item-card with pet-like names
+      const allItemsRegex = /<div class="item-card"[^>]*onclick="openItemDetails\('([^']+)',\s*'([^']+)'\)"[\s\S]*?<\/div>(?=\s*(?:<div class="item-card"|$))/gi;
+      
+      let allMatch;
+      while ((allMatch = allItemsRegex.exec(html)) !== null) {
+        const itemName = allMatch[1];
+        const itemType = allMatch[2];
+        const cardHtml = allMatch[0];
+        
+        // Only include if it's a Pet or if the name sounds like a pet
+        const petKeywords = ['Rex', 'Dragon', 'Phoenix', 'Unicorn', 'Griffin', 'Kraken', 'Hydra', 'Wolf', 'Tiger', 'Lion', 'Bear'];
+        const isPet = itemType === 'Pet' || petKeywords.some(keyword => itemName.includes(keyword));
+        
+        if (isPet) {
+          const valueMatch = cardHtml.match(/<span style="color: #5048E5;">([^<]+)<\/span>/);
+          const petValue = valueMatch ? valueMatch[1] : 'N/A';
+          
+          const demandMatch = cardHtml.match(/<span class="stat-value" style="color: #A2A2A2;">([^<]+)<\/span>/);
+          const petDemand = demandMatch ? demandMatch[1] : 'N/A';
+          
+          const rarityMatch = cardHtml.match(/<div class="rarity-badge rarity-([^"]+)">([^<]+)<\/div>/);
+          const petRarity = rarityMatch ? rarityMatch[2] : 'N/A';
+          
           pets.push({
-            name: petName,
+            name: itemName,
             value: petValue,
-            demand: petDemand || 'N/A'
+            demand: petDemand,
+            rarity: petRarity,
+            type: itemType
           });
         }
-      } catch (error) {
-        console.log('Error parsing pet:', error);
       }
     }
     
-    // Alternative parsing method if the first one doesn't work well
-    if (pets.length === 0) {
-      // Try to find JSON data embedded in the page
-      const jsonMatch = html.match(/var\s+items\s*=\s*(\[.*?\]);/s) || 
-                       html.match(/data\s*:\s*(\[.*?\])/s) ||
-                       html.match(/items\s*:\s*(\[.*?\])/s);
-      
-      if (jsonMatch) {
-        try {
-          const itemsData = JSON.parse(jsonMatch[1]);
-          for (const item of itemsData) {
-            if (item.name && item.value) {
-              pets.push({
-                name: item.name,
-                value: item.value,
-                demand: item.demand || 'N/A'
-              });
-            }
-          }
-        } catch (error) {
-          console.log('Failed to parse embedded JSON:', error);
-        }
-      }
-    }
-    
-    // If still no pets found, try a simpler text-based extraction
-    if (pets.length === 0) {
-      // Look for common pet names in Grow a Garden
-      const commonPets = ['T-Rex'];
-      for (const petName of commonPets) {
-        if (html.includes(petName)) {
-          // Try to find the value near this pet name
-          const petSection = html.substring(html.indexOf(petName) - 200, html.indexOf(petName) + 200);
-          const valueMatch = petSection.match(/(\d+\.?\d*)/g);
-          if (valueMatch) {
-            pets.push({
-              name: petName,
-              value: valueMatch[0],
-              demand: 'N/A'
-            });
-          }
-        }
-      }
-    }
+    // Remove duplicates
+    const uniquePets = pets.filter((pet, index, self) => 
+      index === self.findIndex(p => p.name === pet.name)
+    );
     
     // Extract just names for compatibility
-    const petNames = pets.map(pet => pet.name);
+    const petNames = uniquePets.map(pet => pet.name);
     
     res.json({
       timestamp: new Date().toISOString(),
       source: 'growagardenvalues.com',
-      totalPets: pets.length,
+      totalPets: uniquePets.length,
       names: petNames,
-      petsWithValues: pets,
+      petsWithValues: uniquePets,
       debugInfo: {
         htmlLength: html.length,
-        foundMatches: petMatches.length
+        foundPetCards: pets.length,
+        uniquePets: uniquePets.length
       }
     });
     
