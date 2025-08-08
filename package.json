@@ -1,0 +1,9 @@
+{
+  "name": "roblox-json-proxy",
+  "version": "1.0.0",
+  "description": "Proxy for fetching JSON data",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}
